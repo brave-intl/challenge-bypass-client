@@ -29,9 +29,9 @@ for (const script of libScripts) {
 
 (async () => {
   const MAX_TOKENS = 300;
-  const TOKENS_PER_REQUEST = 30;
+  const TOKENS_PER_REQUEST = 100;
 
-  const response = await fetch('http://localhost:2416/v1/registrar/whatever/')
+  const response = await fetch('http://localhost:2416/v1/issuer/fff/')
   const registrar = await response.json();
   libContext.activeG = registrar.G;
   libContext.activeH = registrar.H;
@@ -39,26 +39,31 @@ for (const script of libScripts) {
   const tokens = libContext.GenerateNewTokens(TOKENS_PER_REQUEST);
   const request = libContext.BuildIssueRequest(tokens);
 
-  const unwrappedRequest = libContext.atob(request);
-
-  const response2 = await fetch('http://localhost:2416/v1/blindedToken/whatever/', {
-    body: unwrappedRequest,
+  const response2 = await fetch('http://localhost:2416/v1/blindedToken/fff/', {
+    body: request,
     method: 'POST',
   });
-  const blindedTokens = await response2.json();
-  const batchProof = blindedTokens.pop();
+
+  const blindedTokensResponse = await response2.json();
+  const batchProof = blindedTokensResponse.batchProof;
+  const blindedTokens = blindedTokensResponse.tokens;
 
   const signedPoints = blindedTokens.map(libContext.sec1DecodePoint);
   console.log('verify', libContext.verifyProof(batchProof, tokens, signedPoints));
+
+  var atoken;
+
   const tokenObj = {
     token: tokens[0].token,
     point: signedPoints[0],
     blind: tokens[0].blind,
   };
 
-  const atoken = libContext.atob(libContext.BuildRedeemHeader(tokenObj, 'somehost', 'somepath'));
 
-  const response3 = await fetch('http://localhost:2416/v1/blindedToken/whatever/tokenName/', {
+  const id = libContext.btoa(tokenObj.token);
+  atoken = libContext.BuildRedeemRequest(tokenObj, JSON.stringify({ test: "abcdefg" }));
+
+  const response3 = await fetch(`http://localhost:2416/v1/blindedToken/fff/${id}/`, {
     body: atoken,
     method: 'POST',
   });

@@ -37,19 +37,8 @@ function GenerateNewTokens(n) {
     return tokens;
 }
 
-// Creates an issuance request for the current set of stored tokens. The format
-// is base64(json(BlindTokenRequest)) where BlindTokenRequest
-// corresponds to the following Go struct:
-//
-// type BlindTokenRequest struct {
-//      Type     ReqType  `json:"type"`
-//      Contents [][]byte `json:"contents"`
-// }
-//
-// Note that Go will automatically render and decode []byte as base64 encoded
-// strings.
-//
-// For an issuance request, type will be "Issue" and the contents will be a
+// Creates an issuance request for the current set of stored tokens.
+// For an issuance request, the contents will be a
 // list of base64-encoded marshaled curve points. We can transmit compressed
 // curve points here because the service code knows how to decompress them, but
 // should remember we use uncompressed points for all key derivations.
@@ -59,42 +48,25 @@ function BuildIssueRequest(tokens) {
         const encodedPoint = compressPoint(tokens[i].point);
         contents.push(encodedPoint);
     }
-    return btoa(JSON.stringify({ type: "Issue", contents: contents}));
+    return JSON.stringify({ pretokens: contents});
 }
 
-// Creates a redemption header for the specified request. The format is
-// base64(json(BlindTokenRequest)) where BlindTokenRequest corresponds to the
-// following Go struct:
-//
-// type BlindTokenRequest struct {
-//      Type     ReqType  `json:"type"`
-//      Contents [][]byte `json:"contents"`
-// }
-//
-// Note that Go will automatically render and decode []byte as base64 encoded
-// strings.
-//
-// For a redemption request, type will be "Redeem" and the contents will be a
-// list of [token preimage, HMAC(host, "%s %s" % (method, uri))] where the HMAC
+// For a redemption request, the contents will be an object
+//  of {t: token preimage, N: HMAC(payload)} where the HMAC
 // key is derived from the signed point corresponding to the token preimage.
-function BuildRedeemHeader(token, host, path) {
+function BuildRedeemRequest(token, payload) {
+    if (typeof payload !== 'string') throw new Error('payload must be a string');
+
     const sharedPoint = unblindPoint(token.blind, token.point);
     const derivedKey = deriveKey(sharedPoint, token.token);
 
     // TODO: this could be more efficient, but it's easier to check correctness when everything is bytes
-    const hostBits = sjcl.codec.utf8String.toBits(host);
-    const hostBytes = sjcl.codec.bytes.fromBits(hostBits);
+    const payloadBits = sjcl.codec.utf8String.toBits(payload);
+    const payloadBytes = sjcl.codec.bytes.fromBits(payloadBits);
 
-    const pathBits = sjcl.codec.utf8String.toBits(path);
-    const pathBytes = sjcl.codec.bytes.fromBits(pathBits);
+    const binding = createRequestBinding(derivedKey, [payloadBytes]);
 
-    const binding = createRequestBinding(derivedKey, [hostBytes, pathBytes]);
-
-    let contents = [];
-    contents.push(token.token);
-    contents.push(binding);
-
-    return btoa(JSON.stringify({ type: "Redeem", contents: contents}));
+    return JSON.stringify({ token: { t: btoa(token.token), N: btoa(binding) }, payload: payload });
 }
 
 
