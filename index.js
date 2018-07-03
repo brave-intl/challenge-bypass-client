@@ -27,49 +27,84 @@ for (const script of libScripts) {
   vm.runInContext(fs.readFileSync('./challenge-bypass-extension/scripts/' + script), libContext);
 }
 
-(async () => {
-  const MAX_TOKENS = 300;
-  const TOKENS_PER_REQUEST = 100;
+export default class Client {
+  constructor(G, H) {
+    if (!G || !H)
+      throw new Error("Server G and H are missing");
 
-  const response = await fetch('http://localhost:2416/v1/issuer/fff/')
-  const registrar = await response.json();
-  libContext.activeG = registrar.G;
-  libContext.activeH = registrar.H;
+    this.G = G;
+    this.H = H;
 
-  const tokens = libContext.GenerateNewTokens(TOKENS_PER_REQUEST);
-  const request = libContext.BuildIssueRequest(tokens);
+    this._generatedTokens = null;
+    this._signedTokens = null;
+  }
 
-  const response2 = await fetch('http://localhost:2416/v1/blindedToken/fff/', {
-    body: request,
-    method: 'POST',
-  });
+  reset() {
+    this._generatedTokens = null;
+    this._signedTokens = null;
+  }
 
-  const blindedTokensResponse = await response2.json();
-  const batchProof = blindedTokensResponse.batchProof;
-  const blindedTokens = blindedTokensResponse.tokens;
+  _resetLib() {
+    libContext.activeG = registrar.G;
+    libContext.activeH = registrar.H;
+  }
 
-  const signedPoints = blindedTokens.map(libContext.sec1DecodePoint);
-  console.log('verify', libContext.verifyProof(batchProof, tokens, signedPoints));
+  makeIssueRequest(tokensNumber) {
+    if (this._generatedTokens) {
+      throw new Error("Previously generated tokens exist. Either get them signed by the server, or reset the client.");
+    }
 
-  var atoken;
+    this._resetLib();
+    const tokens = libContext.GenerateNewTokens(tokensNumber);
+    this._generatedTokens = tokens;
+    const request = libContext.BuildIssueRequest(tokens);
+    return request;
+  }
 
-  const tokenObj = {
-    token: tokens[0].token,
-    point: signedPoints[0],
-    blind: tokens[0].blind,
-  };
+  unblindSignedTokens({tokens, batchProof}) {
+    if (!this._generatedTokens)
+      throw new Error("No generated unsigned tokens");
 
+    this._resetLib();
+    const signedPoints = tokens.map(libContext.sec1DecodePoint);
+    if (!libContext.verifyProof(batchProof, this._generatedTokens, signedPoints)) {
+      throw new Error("Verification failed");
+    }
 
-  const id = libContext.btoa(tokenObj.token);
-  atoken = libContext.BuildRedeemRequest(tokenObj, JSON.stringify({ test: "abcdefg" }));
+    this._signedTokens = this._generatedTokens.map((token, i) => ({
+      token: token.token,
+      point: signedPoints[i],
+      blind: token.blind,
+    }));
 
-  const response3 = await fetch(`http://localhost:2416/v1/blindedToken/fff/${id}/`, {
-    body: atoken,
-    method: 'POST',
-  });
-  console.log(await response3.text());
-})();
+    this._generatedTokens = null;
+  }
 
-process.on('unhandledRejection', (reason, p) => {
-  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-});
+  getRedeemableToken() {
+    if (!this._signedTokens)
+      throw new Error("No signed tokens");
+
+    const redeemableToken = this._signedTokens.pop();
+    if (!redeemableToken) {
+      throw new Error("Ran out of signed tokens");
+    }
+
+    return redeemableToken;
+  }
+
+  getRedeemableTokenRequest(payload) {
+    if (typeof payload !== 'string')
+      throw new Error('Payload must be a string');
+
+    const redeemableToken = this.getRedeemableToken();
+
+    this._resetLib();
+    const id = libContext.btoa(redeemableToken.token);
+    const requestBody = libContext.BuildRedeemRequest(redeemableToken, payload);
+
+    return {
+      id,
+      requestBody,
+    };
+  }
+}
