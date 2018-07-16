@@ -24,10 +24,10 @@ const libContext = {
 vm.createContext(libContext);
 
 for (const script of libScripts) {
-  vm.runInContext(fs.readFileSync('./challenge-bypass-extension/scripts/' + script), libContext);
+  vm.runInContext(fs.readFileSync(__dirname + '/challenge-bypass-extension/scripts/' + script), libContext);
 }
 
-export default class Client {
+class Client {
   constructor(G, H) {
     if (!G || !H)
       throw new Error("Server G and H are missing");
@@ -108,3 +108,5 @@ export default class Client {
     };
   }
 }
+
+module.exports = Client;
