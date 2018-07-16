@@ -45,8 +45,8 @@ class Client {
   }
 
   _resetLib() {
-    libContext.activeG = registrar.G;
-    libContext.activeH = registrar.H;
+    libContext.activeG = this.G;
+    libContext.activeH = this.H;
   }
 
   makeIssueRequest(tokensNumber) {
